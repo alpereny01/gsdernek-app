@@ -425,7 +425,10 @@ const frontendPath = path.join(__dirname, '../frontend/dist');
 if (fs.existsSync(frontendPath)) {
     console.log('Production mode: Serving frontend from', frontendPath);
     app.use(express.static(frontendPath));
-    app.get('*', (req, res) => {
+    
+    // Catch-all route to serve React's index.html
+    // Using app.use() instead of app.get('*') to be compatible with Express 5
+    app.use((req, res) => {
         res.sendFile(path.join(frontendPath, 'index.html'));
     });
 }
