@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement } from 'chart.js';
-import { Bar, Pie } from 'react-chartjs-2';
-import { Users, PieChart, Banknote, FolderOpen, Search, Bell, Plus, TrendingUp, TrendingDown, Vault, Camera, CheckCircle2, X, FileText, Lock, User, LogOut, Settings, UserPlus, ArrowLeft, Trash2, Star, Calendar, CreditCard, BarChart3, DollarSign, Receipt } from 'lucide-react';
+import { Bar } from 'react-chartjs-2';
+import { Users, PieChart, FolderOpen, Search, Bell, Plus, TrendingUp, TrendingDown, Vault, Camera, CheckCircle2, X, FileText, Lock, User, LogOut, Settings, UserPlus, ArrowLeft, Trash2, Star, Calendar, CreditCard, BarChart3, DollarSign, Receipt } from 'lucide-react';
 import './index.css';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement);
@@ -372,20 +372,6 @@ function App() {
         return diffDays >= 0 && diffDays <= 90; // Expires within next 3 months
       })
     : members;
-
-  const pieData = {
-    labels: ['Giriş', 'Mutfak', 'Büfe'],
-    datasets: [{
-      data: [
-        dashboardStats.revenueDistribution['Giriş'] || 0,
-        dashboardStats.revenueDistribution['Mutfak'] || 0,
-        dashboardStats.revenueDistribution['Büfe'] || 0
-      ],
-      backgroundColor: ['#8A0304', '#FFB612', '#4CAF50'],
-      borderColor: '#1E1E1E',
-      borderWidth: 2,
-    }]
-  };
 
   const currentMonthBarData = {
     labels: ['Bu Ay'],
