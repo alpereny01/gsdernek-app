@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stuttgart Galatasaraylılar Derneği</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <span class="logo-gs">GS</span>
+                    <h2>Stuttgart<br><span>Dernek Yönetimi</span></h2>
+                </div>
+            </div>
+            <nav class="sidebar-nav">
+                <ul>
+                    <li class="active"><a href="#"><i class="fa-solid fa-chart-pie"></i> Hızlı Bakış</a></li>
+                    <li><a href="#"><i class="fa-solid fa-users"></i> Üye Yönetimi</a></li>
+                    <li><a href="#"><i class="fa-solid fa-money-bill-transfer"></i> Gelir/Gider Girişi</a></li>
+                    <li><a href="#"><i class="fa-solid fa-folder-open"></i> Dijital Arşiv (Çentik)</a></li>
+                </ul>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <img src="https://ui-avatars.com/api/?name=Admin&background=8A0304&color=fff" alt="Admin">
+                    <div>
+                        <p>Yönetici</p>
+                        <span>Sistem Admini</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar">
+                <div class="search-bar">
+                    <i class="fa-solid fa-search"></i>
+                    <input type="text" placeholder="Üye, işlem veya belge ara...">
+                </div>
+                <div class="topbar-actions">
+                    <button class="icon-btn"><i class="fa-regular fa-bell"></i><span class="badge">3</span></button>
+                    <button class="add-btn"><i class="fa-solid fa-plus"></i> Yeni Kayıt</button>
+                </div>
+            </header>
+
+            <div class="content-wrapper">
+                <div class="page-header">
+                    <h1>Hızlı Bakış</h1>
+                    <p>Mayıs 2026 Dönem Özeti</p>
+                </div>
+
+                <!-- Summary Cards -->
+                <div class="summary-cards">
+                    <div class="card stat-card">
+                        <div class="card-icon" style="color: #FFB612; background: rgba(255, 182, 18, 0.1);">
+                            <i class="fa-solid fa-users"></i>
+                        </div>
+                        <div class="card-info">
+                            <h3>Toplam Üye</h3>
+                            <h2>428</h2>
+                            <span class="trend positive"><i class="fa-solid fa-arrow-up"></i> 12 yeni</span>
+                        </div>
+                    </div>
+                    <div class="card stat-card">
+                        <div class="card-icon" style="color: #4CAF50; background: rgba(76, 175, 80, 0.1);">
+                            <i class="fa-solid fa-arrow-trend-up"></i>
+                        </div>
+                        <div class="card-info">
+                            <h3>Aylık Gelir</h3>
+                            <h2>€ 12.450</h2>
+                            <div class="breakdown">
+                                <span>Giriş: €4.2K</span>
+                                <span>Mutfak: €5.1K</span>
+                                <span>Büfe: €3.1K</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card stat-card">
+                        <div class="card-icon" style="color: #8A0304; background: rgba(138, 3, 4, 0.1);">
+                            <i class="fa-solid fa-arrow-trend-down"></i>
+                        </div>
+                        <div class="card-info">
+                            <h3>Aylık Gider</h3>
+                            <h2>€ 8.320</h2>
+                            <div class="breakdown">
+                                <span>Kira: €3.5K</span>
+                                <span>Malzeme: €2.8K</span>
+                                <span>Diğer: €2.0K</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card stat-card highlight">
+                        <div class="card-icon">
+                            <i class="fa-solid fa-vault"></i>
+                        </div>
+                        <div class="card-info">
+                            <h3>Net Kasa</h3>
+                            <h2>€ 4.130</h2>
+                            <span class="trend positive">Hedefin %15 üzerinde</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bottom Section: Chart & Table -->
+                <div class="dashboard-grid">
+                    <div class="card chart-card">
+                        <div class="card-header">
+                            <h3>Gelir vs Gider (Son 6 Ay)</h3>
+                            <button class="icon-btn"><i class="fa-solid fa-ellipsis"></i></button>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="financeChart"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="card table-card">
+                        <div class="card-header">
+                            <h3>Son İşlemler</h3>
+                            <a href="#" class="view-all">Tümünü Gör</a>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="transactions-table">
+                                <thead>
+                                    <tr>
+                                        <th>İşlem</th>
+                                        <th>Kategori</th>
+                                        <th>Tarih</th>
+                                        <th>Tutar</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>
+                                            <div class="tx-info">
+                                                <div class="tx-icon tx-in"><i class="fa-solid fa-plus"></i></div>
+                                                <span>Büfe Satışı (Hafta Sonu)</span>
+                                            </div>
+                                        </td>
+                                        <td>Büfe</td>
+                                        <td>06 May 2026</td>
+                                        <td class="amount positive">+€ 850.00</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <div class="tx-info">
+                                                <div class="tx-icon tx-out"><i class="fa-solid fa-minus"></i></div>
+                                                <span>Toptancı Malzeme Alımı</span>
+                                            </div>
+                                        </td>
+                                        <td>Malzeme</td>
+                                        <td>05 May 2026</td>
+                                        <td class="amount negative">-€ 1,240.00</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <div class="tx-info">
+                                                <div class="tx-icon tx-out"><i class="fa-solid fa-minus"></i></div>
+                                                <span>Dernek Kirası (Mayıs)</span>
+                                            </div>
+                                        </td>
+                                        <td>Kira</td>
+                                        <td>01 May 2026</td>
+                                        <td class="amount negative">-€ 3,500.00</td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <div class="tx-info">
+                                                <div class="tx-icon tx-in"><i class="fa-solid fa-plus"></i></div>
+                                                <span>Yeni Üye Kaydı (x5)</span>
+                                            </div>
+                                        </td>
+                                        <td>Giriş</td>
+                                        <td>28 Nis 2026</td>
+                                        <td class="amount positive">+€ 1,500.00</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+        
+        <!-- Mobile Bottom Nav -->
+        <nav class="mobile-nav">
+            <a href="#" class="active"><i class="fa-solid fa-chart-pie"></i><span>Bakış</span></a>
+            <a href="#"><i class="fa-solid fa-users"></i><span>Üyeler</span></a>
+            <a href="#" class="add-action"><div class="add-circle"><i class="fa-solid fa-plus"></i></div></a>
+            <a href="#"><i class="fa-solid fa-money-bill-transfer"></i><span>Finans</span></a>
+            <a href="#"><i class="fa-solid fa-folder-open"></i><span>Arşiv</span></a>
+        </nav>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
