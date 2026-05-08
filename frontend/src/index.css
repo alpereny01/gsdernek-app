@@ -726,14 +726,113 @@ body {
 @media (max-width: 1024px) {
   .dashboard-grid { grid-template-columns: 1fr; }
 }
+
+/* ====================================================
+   MOBILE RESPONSIVE (max-width: 768px)
+==================================================== */
 @media (max-width: 768px) {
+  /* Layout */
   .sidebar { display: none; }
   .mobile-nav { display: flex; }
-  .content-wrapper { padding: 16px; padding-bottom: 140px; }
+  .app-container { height: 100dvh; overflow: hidden; }
+  .main-content { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .content-wrapper { padding: 12px 12px 160px 12px; }
+  .content-wrapper.no-padding-top { padding-top: 0; }
+
+  /* Topbar */
+  .topbar {
+    padding: 10px 14px;
+    gap: 8px;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+  .search-bar { width: 100%; min-width: 0; flex: 1; }
+  .search-bar input { font-size: 0.85rem; }
+
+  /* Summary Cards - 2 columns on mobile */
+  .summary-cards {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .stat-card { padding: 14px; }
+  .card-info h2 { font-size: 1.4rem; }
+  .card-info h3 { font-size: 0.72rem; }
+
+  /* Cards */
+  .card { border-radius: 14px; padding: 14px; }
+  .card-header { margin-bottom: 14px; }
+  .card-header h3 { font-size: 1rem; }
+
+  /* Page header */
+  .page-header h1 { font-size: 1.3rem; }
+  .page-header { margin-bottom: 14px; }
+
+  /* Dashboard grid: full width on mobile */
+  .dashboard-grid { grid-template-columns: 1fr; gap: 12px; }
+
+  /* Tables - horizontal scroll */
+  .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .transactions-table { font-size: 0.82rem; min-width: 340px; }
+  .transactions-table th, .transactions-table td { padding: 10px 8px; }
+
+  /* Sticky button */
+  .sticky-bottom-action { bottom: 88px; padding: 12px 16px; }
+  .huge-save-btn { font-size: 1rem; padding: 16px; border-radius: 14px; }
+
+  /* Mobile entry form */
+  .mobile-entry-container { padding-bottom: 120px; }
+  .mobile-header h2 { font-size: 1.4rem; }
+  .mobile-entry-form { padding: 0 12px; gap: 16px; }
+  .daily-section { padding: 16px; }
+
+  /* Filter buttons */
+  .filter-btn { font-size: 0.82rem; padding: 8px 12px; }
+
+  /* Modal: full width on mobile */
+  .modal-overlay { padding: 0; align-items: flex-end; }
+  .modal-content {
+    border-radius: 24px 24px 0 0;
+    max-height: 92dvh;
+    max-width: 100%;
+    width: 100%;
+  }
+  .modal-header { padding: 16px 20px; }
+  .modal-header h3 { font-size: 1rem; }
+  .modal-body { padding: 16px 20px; }
+
+  /* Archive */
+  .archive-item { padding: 12px; flex-wrap: wrap; gap: 8px; }
+  .archive-date { font-size: 0.95rem; }
+  .archive-summary { font-size: 0.8rem; }
+
+  /* Two-col grids in modals -> single col */
+  .modal-body .two-col-grid { grid-template-columns: 1fr !important; }
+
+  /* Input groups */
+  .input-group label { font-size: 0.82rem; }
+  .amount-input-wrapper-small { padding: 10px 12px; }
+  .amount-input-small { font-size: 1rem; }
+
+  /* Member cards: single column on small screens */
+  .member-card-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Prevent horizontal overflow globally */
+  * { max-width: 100%; box-sizing: border-box; }
+  img, video, svg { max-width: 100%; }
+
+  /* Finance report tables: full scroll */
+  .finance-table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
+
+/* Extra small screens */
+@media (max-width: 400px) {
   .summary-cards { grid-template-columns: 1fr; }
-  .sticky-bottom-action { bottom: 95px; }
-  .topbar { padding: 16px; gap: 12px; }
-  .search-bar { width: 100%; }
+  .topbar-actions .icon-btn:last-child { display: none; }
+  .card-info h2 { font-size: 1.2rem; }
 }
 
 /* ====================================================
@@ -1000,5 +1099,36 @@ body {
   background: linear-gradient(135deg, #A80304, #5A0001) !important;
   color: white !important;
   border: none !important;
-} .red-card h3, .red-card h2 { color: white !important; } .topbar { background: var(--surface-color); border-bottom: 1px solid var(--border-color); } .search-bar input { background: var(--surface-light); color: var(--text-primary); } .transactions-table th { background-color: var(--primary-color) !important; color: white !important; } .transactions-table td { border-bottom: 1px solid var(--border-color); } .sidebar { background: #1E1E1E !important; } .sidebar-nav button { color: #A0A0A0; } .sidebar-nav button.active { background: rgba(255, 182, 18, 0.1); color: var(--secondary-color); border-right: 3px solid var(--secondary-color); }
+}
+.red-card h3, .red-card h2 { color: white !important; }
+
+/* Light theme overrides */
+body.light-theme .topbar {
+  background: var(--surface-color);
+  border-bottom: 1px solid var(--border-color);
+}
+body.light-theme .search-bar input {
+  background: var(--surface-light);
+  color: var(--text-primary);
+}
+body.light-theme .transactions-table th {
+  background-color: var(--primary-color) !important;
+  color: white !important;
+}
+body.light-theme .transactions-table td {
+  border-bottom: 1px solid var(--border-color);
+}
+body.light-theme .sidebar {
+  background: #1E1E1E !important;
+}
+body.light-theme .sidebar .logo h2,
+body.light-theme .sidebar .user-info p { color: #FFFFFF !important; }
+body.light-theme .sidebar .logo h2 span,
+body.light-theme .sidebar .user-info span { color: #A0A0A0 !important; }
+body.light-theme .sidebar-nav button { color: #A0A0A0; }
+body.light-theme .sidebar-nav li.active button {
+  background: rgba(255, 182, 18, 0.1);
+  color: var(--secondary-color);
+  border-left: 3px solid var(--primary-color);
+}
 

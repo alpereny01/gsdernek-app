@@ -4,21 +4,101 @@ const sqlite3 = require('sqlite3').verbose();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const bcrypt = require('bcryptjs');
+const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
+const crypto = require('crypto');
 
 const app = express();
 const port = 5000;
 
-app.use(cors());
-app.use(express.json());
+// Security headers
+app.use(helmet({ contentSecurityPolicy: false }));
+
+// CORS - sadece kendi origin'e izin ver (local geliştirmede her yerden)
+app.use(cors({
+    origin: (origin, cb) => cb(null, true), // Local app, production'da kısıtlanabilir
+    methods: ['GET','POST','PUT','DELETE'],
+    allowedHeaders: ['Content-Type','Authorization']
+}));
+
+app.use(express.json({ limit: '2mb' }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Login rate limiting - brute force koruması
+const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 dakika
+    max: 20,
+    message: { error: 'Çok fazla giriş denemesi. 15 dakika bekleyin.' },
+    standardHeaders: true,
+    legacyHeaders: false
+});
 
 if (!fs.existsSync('uploads')) fs.mkdirSync('uploads');
 
+// Multer - sadece resim, max 5MB
+const ALLOWED_IMG_TYPES = ['image/jpeg','image/png','image/gif','image/webp'];
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, 'uploads/'),
-    filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname))
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname).toLowerCase();
+        cb(null, Date.now() + '-' + crypto.randomBytes(6).toString('hex') + ext);
+    }
 });
-const upload = multer({ storage });
+const upload = multer({
+    storage,
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        if (ALLOWED_IMG_TYPES.includes(file.mimetype)) cb(null, true);
+        else cb(new Error('Sadece resim dosyası yüklenebilir (JPEG/PNG/GIF/WEBP)'));
+    }
+});
+
+// Token store (in-memory, production'da Redis kullanılır)
+const activeSessions = new Map(); // token -> { userId, username, role, expires }
+
+function generateToken() {
+    return crypto.randomBytes(32).toString('hex');
+}
+
+function createSession(user) {
+    const token = generateToken();
+    const expires = Date.now() + (12 * 60 * 60 * 1000); // 12 saat
+    activeSessions.set(token, { userId: user.id, username: user.username, role: user.role, expires });
+    // Süresi dolmuş oturumları temizle
+    for (const [t, s] of activeSessions.entries()) {
+        if (s.expires < Date.now()) activeSessions.delete(t);
+    }
+    return token;
+}
+
+// Auth middleware
+function requireAuth(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'Oturum gerekli' });
+    const session = activeSessions.get(token);
+    if (!session || session.expires < Date.now()) {
+        activeSessions.delete(token);
+        return res.status(401).json({ error: 'Oturum süresi dolmuş, tekrar giriş yapın' });
+    }
+    req.user = session;
+    next();
+}
+
+function requireAdmin(req, res, next) {
+    requireAuth(req, res, () => {
+        if (req.user.role !== 'admin') return res.status(403).json({ error: 'Yönetici yetkisi gerekli' });
+        next();
+    });
+}
+
+function requireMasterAdmin(req, res, next) {
+    requireAdmin(req, res, () => {
+        if (req.user.username !== 'admin1905') return res.status(403).json({ error: 'Sadece master admin yapabilir' });
+        next();
+    });
+}
 
 const db = new sqlite3.Database('./dernek.db', (err) => {
     if (err) { console.error('DB Error:', err.message); return; }
@@ -26,7 +106,27 @@ const db = new sqlite3.Database('./dernek.db', (err) => {
     db.serialize(() => {
         db.run(`CREATE TABLE IF NOT EXISTS Users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, password TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'staff')`);
         db.get("SELECT * FROM Users WHERE username='admin1905'", [], (e, row) => {
-            if (!row) db.run("INSERT INTO Users (username,password,role) VALUES ('admin1905','Sampiy10G4l4t4s4r4y!','admin')");
+            if (!row) {
+                // Admin yoksa bcrypt ile hashlenmiş şifre oluştur
+                const hashed = bcrypt.hashSync('Sampiy10G4l4t4s4r4y!', 10);
+                db.run("INSERT INTO Users (username,password,role) VALUES ('admin1905',?,'admin')", [hashed]);
+            } else {
+                // Eski plain-text şifreleri hash'e migrate et
+                if (row.password && !row.password.startsWith('$2')) {
+                    const hashed = bcrypt.hashSync(row.password, 10);
+                    db.run("UPDATE Users SET password=? WHERE username='admin1905'", [hashed]);
+                }
+            }
+        });
+        // Diğer kullanıcıların plain-text şifrelerini migrate et
+        db.all("SELECT id,password FROM Users WHERE username!='admin1905'", [], (e, rows) => {
+            if (!rows) return;
+            rows.forEach(u => {
+                if (u.password && !u.password.startsWith('$2')) {
+                    const hashed = bcrypt.hashSync(u.password, 10);
+                    db.run("UPDATE Users SET password=? WHERE id=?", [hashed, u.id]);
+                }
+            });
         });
         db.run(`CREATE TABLE IF NOT EXISTS Members (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -84,24 +184,45 @@ function getSponsorMonthlyIncome(sponsors, yearMonth) {
 }
 
 // --- AUTH ---
-app.post('/api/login', (req, res) => {
+app.post('/api/login', loginLimiter, (req, res) => {
     const { username, password } = req.body;
-    db.get("SELECT * FROM Users WHERE username=? AND password=?", [username, password], (err, row) => {
-        if (err) return res.status(500).json({ error: err.message });
-        if (row) res.json({ success: true, user: { id: row.id, username: row.username, role: row.role } });
-        else res.status(401).json({ success: false, message: 'Geçersiz kullanıcı adı veya şifre' });
+    if (!username || !password) return res.status(400).json({ error: 'Kullanıcı adı ve şifre gerekli' });
+    // Basit injection koruması: username sadece alfanumerik+underscore
+    if (!/^[a-zA-Z0-9_]{1,50}$/.test(username)) return res.status(400).json({ error: 'Geçersiz kullanıcı adı' });
+    db.get("SELECT * FROM Users WHERE username=?", [username], (err, row) => {
+        if (err) return res.status(500).json({ error: 'Sunucu hatası' });
+        if (!row) return res.status(401).json({ success: false, message: 'Geçersiz kullanıcı adı veya şifre' });
+        const match = bcrypt.compareSync(password, row.password);
+        if (!match) return res.status(401).json({ success: false, message: 'Geçersiz kullanıcı adı veya şifre' });
+        const token = createSession(row);
+        res.json({ success: true, token, user: { id: row.id, username: row.username, role: row.role } });
     });
 });
 
-app.get('/api/users', (req, res) => {
-    db.all("SELECT id,username,role FROM Users ORDER BY id ASC", [], (err, rows) => {
+app.post('/api/logout', requireAuth, (req, res) => {
+    const token = req.headers['authorization']?.split(' ')[1];
+    if (token) activeSessions.delete(token);
+    res.json({ success: true });
+});
+
+app.get('/api/users', requireAdmin, (req, res) => {
+    // Master admin şifreleri görebilir (hashlenmiş şekilde)
+    const query = req.user.username === 'admin1905'
+        ? "SELECT id,username,role,password FROM Users ORDER BY id ASC"
+        : "SELECT id,username,role FROM Users ORDER BY id ASC";
+    db.all(query, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
 });
-app.post('/api/users', (req, res) => {
+
+app.post('/api/users', requireMasterAdmin, (req, res) => {
     const { username, password, role } = req.body;
-    db.run("INSERT INTO Users (username,password,role) VALUES (?,?,?)", [username, password, role || 'staff'], function(err) {
+    if (!username || !password) return res.status(400).json({ error: 'Kullanıcı adı ve şifre gerekli' });
+    if (!/^[a-zA-Z0-9_]{3,50}$/.test(username)) return res.status(400).json({ error: 'Geçersiz kullanıcı adı (3-50 karakter, harf/rakam/altçizgi)' });
+    if (password.length < 6) return res.status(400).json({ error: 'Şifre en az 6 karakter olmalı' });
+    const hashedPwd = bcrypt.hashSync(password, 10);
+    db.run("INSERT INTO Users (username,password,role) VALUES (?,?,?)", [username, hashedPwd, role || 'staff'], function(err) {
         if (err) {
             if (err.message.includes('UNIQUE')) return res.status(400).json({ error: 'Bu kullanıcı adı zaten var' });
             return res.status(500).json({ error: err.message });
@@ -109,32 +230,59 @@ app.post('/api/users', (req, res) => {
         res.json({ id: this.lastID, username, role: role || 'staff' });
     });
 });
-app.delete('/api/users/:id', (req, res) => {
-    db.run("DELETE FROM Users WHERE id=?", [req.params.id], function(err) {
+
+app.delete('/api/users/:id', requireAdmin, (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Geçersiz ID' });
+    db.get("SELECT username, role FROM Users WHERE id=?", [id], (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
+        if (!row) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
+        if (row.username === 'admin1905') return res.status(403).json({ error: 'admin1905 silinemez' });
+        if (row.role === 'admin' && req.user.username !== 'admin1905')
+            return res.status(403).json({ error: 'Diğer adminleri sadece admin1905 silebilir' });
+        db.run("DELETE FROM Users WHERE id=?", [id], function(err) {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ success: true });
+        });
+    });
+});
+
+app.put('/api/users/:id', requireMasterAdmin, (req, res) => {
+    const { password } = req.body;
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Geçersiz ID' });
+    if (!password || password.length < 6) return res.status(400).json({ error: 'Şifre en az 6 karakter olmalı' });
+    const hashedPwd = bcrypt.hashSync(password, 10);
+    db.run("UPDATE Users SET password=? WHERE id=?", [hashedPwd, id], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
         res.json({ success: true });
     });
 });
 
 // --- MEMBERS ---
-app.get('/api/members', (req, res) => {
+app.get('/api/members', requireAuth, (req, res) => {
     db.all("SELECT * FROM Members ORDER BY Name,Surname", [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
 });
-app.post('/api/members', (req, res) => {
-    const { Name, Surname, Email, Phone, Registration_Date, Status, Address, Bank_Name, IBAN, Member_Type, Created_By } = req.body;
-    let fee = 0;
-    if (Member_Type === 'Normal') fee = 120;
-    else if (Member_Type === 'Kadın') fee = 70;
-    else if (Member_Type === 'Öğrenci/Emekli') fee = 50;
-    const creator = Created_By || 'Unknown';
+app.post('/api/members', requireAuth, (req, res) => {
+    const { Name, Surname, Email, Phone, Registration_Date, Status, Address, Bank_Name, IBAN, Member_Type } = req.body;
+    if (!Name || !Surname) return res.status(400).json({ error: 'Ad ve soyad zorunlu' });
+    // IBAN format - boş ise OK, dolu ise başlık kontrol
+    if (IBAN && !/^[A-Z0-9 ]{5,34}$/.test(IBAN.replace(/\s/g, ''))) {
+        return res.status(400).json({ error: 'Geçersiz IBAN formatı' });
+    }
+    const validTypes = ['Normal', 'Kadın', 'Öğrenci/Emekli'];
+    const memberType = validTypes.includes(Member_Type) ? Member_Type : 'Normal';
+    let fee = memberType === 'Normal' ? 120 : memberType === 'Kadın' ? 70 : 50;
+    const creator = req.user.username;
     const regDate = Registration_Date || new Date().toISOString().split('T')[0];
     db.serialize(() => {
         db.run("BEGIN TRANSACTION");
         db.run(`INSERT INTO Members (Name,Surname,Email,Phone,Registration_Date,Status,Address,Bank_Name,IBAN,Member_Type,Created_By) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-            [Name, Surname, Email, Phone, regDate, Status || 'Active', Address, Bank_Name, IBAN, Member_Type, creator],
+            [Name.trim(), Surname.trim(), Email || '', Phone || '', regDate, Status || 'Active', Address || '', Bank_Name || '', IBAN ? IBAN.trim() : '', memberType, creator],
             function(err) {
                 if (err) { db.run("ROLLBACK"); return res.status(500).json({ error: err.message }); }
                 const memberId = this.lastID;
@@ -151,17 +299,23 @@ app.post('/api/members', (req, res) => {
             });
     });
 });
-app.put('/api/members/:id', (req, res) => {
+app.put('/api/members/:id', requireAuth, (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Geçersiz ID' });
     const { Name, Surname, Email, Phone, Registration_Date, Status, Address, Bank_Name, IBAN, Member_Type } = req.body;
+    if (!Name || !Surname) return res.status(400).json({ error: 'Ad ve soyad zorunlu' });
     db.run(`UPDATE Members SET Name=?,Surname=?,Email=?,Phone=?,Registration_Date=?,Status=?,Address=?,Bank_Name=?,IBAN=?,Member_Type=? WHERE id=?`,
-        [Name, Surname, Email, Phone, Registration_Date, Status || 'Active', Address, Bank_Name, IBAN, Member_Type, req.params.id],
+        [Name.trim(), Surname.trim(), Email || '', Phone || '', Registration_Date, Status || 'Active', Address || '', Bank_Name || '', IBAN ? IBAN.trim() : '', Member_Type, id],
         function(err) {
             if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) return res.status(404).json({ error: 'Üye bulunamadı' });
             res.json({ success: true });
         });
 });
-app.delete('/api/members/:id', (req, res) => {
-    db.run("DELETE FROM Members WHERE id=?", [req.params.id], function(err) {
+app.delete('/api/members/:id', requireAdmin, (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Geçersiz ID' });
+    db.run("DELETE FROM Members WHERE id=?", [id], function(err) {
         if (err) return res.status(500).json({ error: err.message });
         if (this.changes === 0) return res.status(404).json({ error: 'Üye bulunamadı' });
         res.json({ success: true });
@@ -169,80 +323,103 @@ app.delete('/api/members/:id', (req, res) => {
 });
 
 // --- SPONSORS ---
-app.get('/api/sponsors', (req, res) => {
+app.get('/api/sponsors', requireAuth, (req, res) => {
     db.all("SELECT * FROM Sponsors ORDER BY Name ASC", [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
 });
-app.post('/api/sponsors', (req, res) => {
-    const { Name, Surname, Company, Phone, Email, Amount, Payment_Period, Last_Payment_Date, Next_Payment_Date, Notes, Created_By } = req.body;
+app.post('/api/sponsors', requireAuth, (req, res) => {
+    const { Name, Surname, Company, Phone, Email, Amount, Payment_Period, Last_Payment_Date, Next_Payment_Date, Notes } = req.body;
+    if (!Name) return res.status(400).json({ error: 'Sponsor adı zorunlu' });
+    const amt = parseFloat(Amount);
+    if (isNaN(amt) || amt <= 0) return res.status(400).json({ error: 'Geçerli bir tutar girin' });
+    const validPeriods = ['monthly','quarterly','custom4','custom5','semi-annual','annual'];
+    if (!validPeriods.includes(Payment_Period)) return res.status(400).json({ error: 'Geçersiz ödeme dönemi' });
     db.run(`INSERT INTO Sponsors (Name,Surname,Company,Phone,Email,Amount,Payment_Period,Last_Payment_Date,Next_Payment_Date,Notes,Created_By) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-        [Name, Surname || '', Company || '', Phone || '', Email || '', parseFloat(Amount), Payment_Period || 'monthly', Last_Payment_Date, Next_Payment_Date, Notes || '', Created_By || 'Unknown'],
+        [Name.trim(), Surname || '', Company || '', Phone || '', Email || '', amt, Payment_Period, Last_Payment_Date, Next_Payment_Date, Notes || '', req.user.username],
         function(err) {
             if (err) return res.status(500).json({ error: err.message });
             res.json({ id: this.lastID });
         });
 });
-app.put('/api/sponsors/:id', (req, res) => {
+app.put('/api/sponsors/:id', requireAuth, (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Geçersiz ID' });
     const { Name, Surname, Company, Phone, Email, Amount, Payment_Period, Last_Payment_Date, Next_Payment_Date, Notes, Status } = req.body;
+    const amt = parseFloat(Amount);
+    if (isNaN(amt) || amt <= 0) return res.status(400).json({ error: 'Geçerli bir tutar girin' });
     db.run(`UPDATE Sponsors SET Name=?,Surname=?,Company=?,Phone=?,Email=?,Amount=?,Payment_Period=?,Last_Payment_Date=?,Next_Payment_Date=?,Notes=?,Status=? WHERE id=?`,
-        [Name, Surname || '', Company || '', Phone || '', Email || '', parseFloat(Amount), Payment_Period, Last_Payment_Date, Next_Payment_Date, Notes || '', Status || 'Active', req.params.id],
+        [Name.trim(), Surname || '', Company || '', Phone || '', Email || '', amt, Payment_Period, Last_Payment_Date, Next_Payment_Date, Notes || '', Status || 'Active', id],
         function(err) {
             if (err) return res.status(500).json({ error: err.message });
             res.json({ success: true });
         });
 });
-app.delete('/api/sponsors/:id', (req, res) => {
-    db.run("DELETE FROM Sponsors WHERE id=?", [req.params.id], function(err) {
+app.delete('/api/sponsors/:id', requireAdmin, (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Geçersiz ID' });
+    db.run("DELETE FROM Sponsors WHERE id=?", [id], function(err) {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ success: true });
     });
 });
 
 // --- FINANCIALS ---
-app.get('/api/financials', (req, res) => {
+app.get('/api/financials', requireAuth, (req, res) => {
     db.all("SELECT * FROM Financials ORDER BY Date DESC", [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
 });
-app.put('/api/financials/:id', (req, res) => {
+app.put('/api/financials/:id', requireAuth, (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Geçersiz ID' });
     const { Date: fDate, Type, Category, Amount, Notes } = req.body;
+    const validTypes = ['Income', 'Expense'];
+    if (!validTypes.includes(Type)) return res.status(400).json({ error: 'Geçersiz işlem tipi' });
+    const amt = parseFloat(Amount);
+    if (isNaN(amt) || amt <= 0) return res.status(400).json({ error: 'Geçerli tutar girin' });
     db.run(`UPDATE Financials SET Date=?,Type=?,Category=?,Amount=?,Notes=? WHERE id=?`,
-        [fDate, Type, Category, parseFloat(Amount), Notes || '', req.params.id],
+        [fDate, Type, Category, amt, Notes || '', id],
         function(err) {
             if (err) return res.status(500).json({ error: err.message });
+            if (this.changes === 0) return res.status(404).json({ error: 'Kayıt bulunamadı' });
             res.json({ success: true });
         });
 });
-app.post('/api/financials', upload.single('receipt'), (req, res) => {
-    const { Date: fDate, Type, Category, Amount, Created_By } = req.body;
-    const File_Path = req.file ? req.file.path : null;
+app.post('/api/financials', requireAuth, upload.single('receipt'), (req, res) => {
+    const { Date: fDate, Type, Category, Amount } = req.body;
+    const File_Path = req.file ? req.file.path.replace(/\\/g, '/') : null;
+    const amt = parseFloat(Amount);
+    if (isNaN(amt) || amt <= 0) return res.status(400).json({ error: 'Geçerli tutar girin' });
     db.run(`INSERT INTO Financials (Date,Type,Category,Amount,File_Path,Created_By) VALUES (?,?,?,?,?,?)`,
-        [fDate, Type, Category, parseFloat(Amount), File_Path, Created_By || 'Unknown'],
+        [fDate, Type, Category, amt, File_Path, req.user.username],
         function(err) {
             if (err) return res.status(500).json({ error: err.message });
             res.json({ id: this.lastID, File_Path });
         });
 });
-app.post('/api/financials/daily', upload.single('receipt'), (req, res) => {
-    const { Date: fDate, incomes, expenses, Created_By } = req.body;
-    const File_Path = req.file ? req.file.path : null;
-    const creator = Created_By || 'Unknown';
+app.post('/api/financials/daily', requireAuth, upload.single('receipt'), (req, res) => {
+    const { Date: fDate, incomes, expenses } = req.body;
+    const File_Path = req.file ? req.file.path.replace(/\\/g, '/') : null;
+    const creator = req.user.username;
     let parsedIncomes = [], parsedExpenses = [];
     try {
         if (incomes) parsedIncomes = JSON.parse(incomes);
         if (expenses) parsedExpenses = JSON.parse(expenses);
-    } catch (e) { return res.status(400).json({ error: 'Invalid JSON' }); }
+    } catch (e) { return res.status(400).json({ error: 'Geçersiz veri formatı' }); }
+    // Tutar doğrulaması
+    if (!parsedIncomes.every(i => !isNaN(parseFloat(i.amount)))) return res.status(400).json({ error: 'Geçersiz gelir tutarı' });
+    if (!parsedExpenses.every(i => !isNaN(parseFloat(i.amount)))) return res.status(400).json({ error: 'Geçersiz gider tutarı' });
     db.serialize(() => {
         db.run("BEGIN TRANSACTION");
         parsedIncomes.forEach(inc => {
-            if (inc.amount > 0) db.run(`INSERT INTO Financials (Date,Type,Category,Amount,File_Path,Created_By) VALUES (?,?,?,?,?,?)`,
+            if (parseFloat(inc.amount) > 0) db.run(`INSERT INTO Financials (Date,Type,Category,Amount,File_Path,Created_By) VALUES (?,?,?,?,?,?)`,
                 [fDate, 'Income', inc.category, parseFloat(inc.amount), File_Path, creator]);
         });
         parsedExpenses.forEach(exp => {
-            if (exp.amount > 0) db.run(`INSERT INTO Financials (Date,Type,Category,Amount,File_Path,Created_By) VALUES (?,?,?,?,?,?)`,
+            if (parseFloat(exp.amount) > 0) db.run(`INSERT INTO Financials (Date,Type,Category,Amount,File_Path,Created_By) VALUES (?,?,?,?,?,?)`,
                 [fDate, 'Expense', exp.category, parseFloat(exp.amount), File_Path, creator]);
         });
         db.run("COMMIT", (err) => {
@@ -251,15 +428,17 @@ app.post('/api/financials/daily', upload.single('receipt'), (req, res) => {
         });
     });
 });
-app.delete('/api/financials/:id', (req, res) => {
-    db.run("DELETE FROM Financials WHERE id=?", [req.params.id], function(err) {
+app.delete('/api/financials/:id', requireAuth, (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Geçersiz ID' });
+    db.run("DELETE FROM Financials WHERE id=?", [id], function(err) {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ success: true });
     });
 });
 
 // --- STATS ---
-app.get('/api/stats/dashboard', (req, res) => {
+app.get('/api/stats/dashboard', requireAuth, (req, res) => {
     const currentMonth = new Date().toISOString().slice(0, 7);
     let responseData = {
         revenueDistribution: { Giriş: 0, Mutfak: 0, Büfe: 0 },
@@ -286,7 +465,7 @@ app.get('/api/stats/dashboard', (req, res) => {
     });
 });
 
-app.get('/api/stats/summary', (req, res) => {
+app.get('/api/stats/summary', requireAuth, (req, res) => {
     const currentMonth = new Date().toISOString().slice(0, 7);
     const summary = { totalMembers: 0, monthlyDailyIncome: 0, monthlyMembershipIncome: 0, monthlySponsorIncome: 0, monthlyExpense: 0, totalIncome: 0, netBalance: 0 };
     db.serialize(() => {
@@ -316,7 +495,7 @@ app.get('/api/stats/summary', (req, res) => {
 });
 
 // Detailed Finance Stats
-app.get('/api/stats/finance', (req, res) => {
+app.get('/api/stats/finance', requireAuth, (req, res) => {
     const currentMonth = new Date().toISOString().slice(0, 7);
     const currentYear = new Date().getFullYear().toString();
     const result = {
@@ -409,7 +588,7 @@ app.get('/api/stats/finance', (req, res) => {
     });
 });
 
-app.get('/api/archive', (req, res) => {
+app.get('/api/archive', requireAuth, (req, res) => {
     db.all(`SELECT Date, File_Path, MAX(Created_By) as Created_By,
             SUM(CASE WHEN Type='Income' THEN Amount ELSE 0 END) as Daily_Income,
             SUM(CASE WHEN Type='Expense' THEN Amount ELSE 0 END) as Daily_Expense,
